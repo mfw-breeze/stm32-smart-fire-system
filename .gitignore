@@ -1,0 +1,41 @@
+# ===== 编译产物 =====
+*.o
+*.obj
+*.exe
+*.d
+build/
+Objects/
+Listings/
+DebugConfig/
+RTE/
+
+# ===== Keil =====
+*.uvguix.*
+*.uvoptx
+*.uvopt
+*.axf
+*.hex
+*.bin
+*.elf
+*.map
+*.lst
+*.crf
+*.dep
+*.lnp
+*.sct
+*.build_log.htm
+JLinkLog.txt
+JLinkSettings.ini
+
+# ===== 编辑器 / 系统 =====
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+.DS_Store
+Desktop.ini
+
+# ===== 其他 =====
+*.zip
+*.rar
+*.7z
