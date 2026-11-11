@@ -38,6 +38,7 @@ stateDiagram-v2
 | `FIRE` | LED1 亮，蜂鸣器急响，**继电器吸合喷水** |
 
 设计取舍（为什么用自适应基线、为什么迟滞 16%、已知局限）见 [docs/state-machine.md](docs/state-machine.md)。
+工程约定、当前进度与待办见 [docs/status.md](docs/status.md)。
 
 ## 目录结构
 
