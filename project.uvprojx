@@ -662,6 +662,16 @@
               <FileType>5</FileType>
               <FilePath>.\bsp\Delay.h</FilePath>
             </File>
+            <File>
+              <FileName>IWDG.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\bsp\IWDG.c</FilePath>
+            </File>
+            <File>
+              <FileName>IWDG.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>.\bsp\IWDG.h</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>

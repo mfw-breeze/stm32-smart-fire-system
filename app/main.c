@@ -24,6 +24,7 @@
 #include "MQ2.h"
 #include "MyADC.h"
 #include "USART1.h"
+#include "IWDG.h"
 #include "alarm.h"
 
 #define SAMPLE_PERIOD_MS    200     /* 主循环周期 */
@@ -43,16 +44,30 @@ static void app_hardware_init(void)
     Relay_Init();
 }
 
-/* MQ-2 预热：加热丝上电后 30s 内读数不可信，这段数据一律丢弃 */
-static void app_warmup(void)
+/*
+ * MQ-2 预热：加热丝上电后 30s 内读数不可信，这段数据一律丢弃。
+ *
+ * 这里必须喂狗：IWDG 超时只有 2s，而预热要 30s，
+ * 循环里不喂的话板子会每 2s 复位一次，表现成「上电就黑屏重启」。
+ * 这是启用看门狗之后最容易踩的一个坑。
+ */
+static void app_warmup(uint8_t reset_cause)
 {
     uint8_t sec;
 
     OLED_ShowString(1, 1, "Warming up...");
+
+    /* 看门狗复位时在第三行提示，现场没接串口也能看出来 */
+    if (reset_cause & IWDG_RST_IWDG)
+    {
+        OLED_ShowString(3, 1, "IWDG RESET");
+    }
+
     for (sec = 0; sec < WARMUP_SECONDS; sec++)
     {
         OLED_ShowNum(2, 1, WARMUP_SECONDS - sec, 2);
         Delay_ms(1000);
+        IWDG_Feed();                        /* 预热期间也要喂狗 */
     }
     OLED_Clear();
 }
@@ -139,15 +154,26 @@ int main(void)
     uint8_t  humi    = 0;
     uint8_t  dht_cnt = 0;
     uint8_t  prt_cnt = 0;
-    uint8_t  relay_now = 0;
+    uint8_t  relay_now   = 0;
+    uint8_t  reset_cause = 0;
     alarm_state_t state;
 
+    /* 1. 先读复位原因并清零，必须早于任何初始化 */
+    reset_cause = IWDG_TakeResetCause();
+
     app_hardware_init();
+
+    /* 2. 上报复位原因：正常上电打印 POR，看门狗复位打印 IWDG */
+    printf("\r\n--- boot: reset=%s (0x%02X) ---\r\n",
+           IWDG_CauseText(reset_cause), (unsigned)reset_cause);
+
+    /* 3. 使能看门狗（2.0s）：之后任何一轮主循环卡死都会被复位拉回来 */
+    IWDG_Init();
 
     LED1_OFF();
     LED2_ON();
 
-    app_warmup();
+    app_warmup(reset_cause);
 
     /* 预热完成后才建立基线 */
     alarm_init();
@@ -194,6 +220,9 @@ int main(void)
                    (unsigned)state,
                    MyADC_GetVdda_mV());
         }
+
+        /* 6. 喂狗：放在一轮主流程的末尾，表示「这一圈确实完整跑完了」 */
+        IWDG_Feed();
 
         Delay_ms(SAMPLE_PERIOD_MS);
     }
