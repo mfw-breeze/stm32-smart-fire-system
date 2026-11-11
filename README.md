@@ -1,5 +1,8 @@
 # stm32-smart-fire-system
 
+[![CI](https://github.com/mfw-breeze/stm32-smart-fire-system/actions/workflows/ci.yml/badge.svg)](https://github.com/mfw-breeze/stm32-smart-fire-system/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 > 基于 STM32F103 的智能消防监测终端：MQ-2 烟雾 + DHT11 温湿度多传感器融合，
 > 三态告警状态机（迟滞 + 连续确认 + 自适应基线），联动继电器喷水。
 
@@ -10,10 +13,11 @@
 
 | 特点 | 说明 |
 |---|---|
-| **可测试** | 告警决策逻辑与硬件解耦，`tests/` 里有 8 组场景，PC 上直接跑，不需要开发板 |
+| **可测试** | 告警决策逻辑与硬件解耦，8 组场景 / 71 项断言，`make test` 即可跑，**每次 push 由 CI 自动验证** |
+| **一份代码两处用** | `app/alarm.c` 既编译进固件，也是 PC 测试的被测对象 —— 不存在「测试测的是另一份实现」 |
 | **抗误报** | 自适应基线 + 迟滞 + 连续 8 次确认，抑制漂移、抖动和毛刺 |
-| **防误喷** | 只有"烟 + 温升"同时成立才喷水，单有烟雾只预警 |
-| **可标定** | 所有阈值集中在 `app/alarm_config.h`，标定方法记在 `docs/calibration.md` |
+| **防误喷** | 只有「烟 + 温升」同时成立才喷水，单有烟雾只预警 |
+| **可标定** | 阈值集中在 `app/alarm_config.h`，标定方法与实测数据见 `docs/calibration.md` |
 
 ## 状态机
 
@@ -33,47 +37,52 @@ stateDiagram-v2
 | `WARNING` | LED2 亮，蜂鸣器慢响，**不喷水** |
 | `FIRE` | LED1 亮，蜂鸣器急响，**继电器吸合喷水** |
 
-详细设计（为什么用自适应基线、为什么迟滞 16%）见 [docs/state-machine.md](docs/state-machine.md)。
+设计取舍（为什么用自适应基线、为什么迟滞 16%、已知局限）见 [docs/state-machine.md](docs/state-machine.md)。
 
 ## 目录结构
 
 ```
 stm32-smart-fire-system/
 ├── app/
-│   ├── alarm.c / alarm.h         # 三态告警状态机（可移植，仅依赖 <stdint.h>）
-│   └── alarm_config.h            # 全部阈值，改这里就能重新标定
-├── tests/
-│   ├── test_alarm.c              # 8 组场景，覆盖 4 条状态转移
-│   └── Makefile
-├── docs/
-│   ├── state-machine.md          # 状态图、转移表、设计取舍、已知局限
-│   ├── hardware.md               # 器件清单、引脚表、供电与实测现象
-│   └── calibration.md            # MQ-2 预热、基线测量、阈值推导、重新标定步骤
+│   ├── main.c                 # 主循环：采样调度 / 执行器输出 / 显示 / CSV
+│   ├── alarm.c / alarm.h      # 三态告警状态机（仅依赖 <stdint.h>，可移植）
+│   ├── alarm_config.h         # 全部阈值，改这里就能重新标定
+│   ├── stm32f10x_it.c / .h    # 中断服务函数
+│   └── stm32f10x_conf.h       # 标准库裁剪配置
+├── bsp/                       # 板级支持：Delay / MyADC / USART1
+├── driver/                    # 器件驱动：MQ-2、DHT11、OLED、继电器、蜂鸣器、LED、按键
+├── vendor/                    # ST 标准外设库 + 启动文件（非本人代码，遵循 ST 原许可）
+├── tests/                     # PC 端单元测试（不需要开发板）
+├── docs/                      # 状态机 / 硬件接线 / 标定记录
+├── project.uvprojx            # Keil MDK 工程（目标 STM32F103C8）
 └── LICENSE (MIT)
 ```
 
-## 跑测试
+## 构建
 
-不需要开发板，只需要一个 C 编译器：
+### 固件（Keil MDK）
+
+1. Keil MDK 5.x 打开 `project.uvprojx`
+2. `F7` 编译 → `F8` 下载
+3. 目标芯片 STM32F103C8，STM32F10x 标准外设库
+
+> `vendor/` 下是 ST 的标准库与 CMSIS，未做改动；`IncludePath` 已配好
+> （`.\vendor\Start;.\vendor\Library;.\app;.\bsp;.\driver`）。
+
+### 单元测试（PC，不需要开发板）
 
 ```bash
 cd tests
-make test          # 或者：gcc -std=c99 -Wall -Wextra -I../app test_alarm.c ../app/alarm.c -o test_alarm && ./test_alarm
+make test
 ```
 
-期望输出：
+或者手动：
 
-```
-=== alarm 状态机单元测试 ===
-[S1] 洁净空气静置
-[S2] 烟雾持续偏高 → 预警
-...
---------------------------------
-通过 71 项，失败 0 项
-OK
+```bash
+gcc -std=c99 -Wall -Wextra -I../app test_alarm.c ../app/alarm.c -o test_alarm && ./test_alarm
 ```
 
-编译验证：MSVC 2022 (cl /std:c11 /utf-8) 与 gcc -std=c99 均可编译，当前 71 项断言全部通过。
+期望输出：`通过 71 项，失败 0 项` / `OK`。
 
 覆盖的场景：
 
@@ -103,23 +112,19 @@ OK
 ## 硬件
 
 STM32F103C8T6 + MQ-2 + DHT11 + 5V 继电器 + 0.96" OLED + 有源蜂鸣器。
-完整引脚表、供电注意事项、实测现象见 [docs/hardware.md](docs/hardware.md)。
+完整引脚表、供电注意事项、实测干扰现象见 [docs/hardware.md](docs/hardware.md)。
 
 ## 路线图
 
-- [x] **v0.1** 告警决策核心 + PC 单元测试 + 设计文档（当前）
-- [ ] **v0.2** 固件层按 `bsp/ · driver/ · app/` 分层迁移；把 OLED / 延时 / 串口驱动重写并纳入本仓
-- [ ] **v0.2** IWDG 看门狗 + 阈值掉电保存（内部 Flash）
+- [x] **v0.1** 告警决策核心 + PC 单元测试 + 设计文档
+- [x] **v0.2** 固件层按 `bsp/ · driver/ · app/` 分层迁移；主程序改用可测试的告警核心；CI 自动跑测试
+- [ ] **v0.3** IWDG 看门狗 + 阈值掉电保存（内部 Flash）
 - [ ] **v0.3** 串口协议升级为 `帧头 + 长度 + CRC16`，配套上位机
 - [ ] **v0.3** 传感器自检（读数贴 0 或满量程时报警）
 - [ ] **v0.4** 多节点：CAN / RS485 组网，接入工业测控终端
 
-## 说明
-
-v0.1 只包含与硬件无关的决策核心。原型固件（含 OLED/DHT11/MQ-2 驱动）是从学习工程里
-长出来的，正在按 `bsp/driver/app` 重新分层，迁移完成后再进本仓 —— 现在把那份代码直接搬进来，
-只会让仓库一半是教程结构、一半是新架构，两边都不干净。
-
 ## 许可证
 
-[MIT](LICENSE)
+本项目代码遵循 [MIT](LICENSE)。
+`vendor/` 目录下的 STM32F10x 标准外设库与 CMSIS 文件遵循 STMicroelectronics 的原始许可，
+不属于本 MIT 许可范围。
